@@ -1,246 +1,3 @@
-<script setup>
-import { ref, reactive, onMounted, computed, onUnmounted } from 'vue'
-import { io } from 'socket.io-client'
-import TaskCard from './components/TaskCard.vue'
-import TaskForm from './components/TaskForm.vue'
-import TaskFilter from './components/TaskFilter.vue'
-import TaskStats from './components/TaskStats.vue'
-
-// Reactive state
-const tasks = ref([])
-const showTaskForm = ref(false)
-const editingTask = ref(null)
-const loading = ref(false)
-const error = ref(null)
-const socket = ref(null)
-const filter = reactive({
-  status: 'all',
-  priority: 'all',
-  category: 'all',
-  search: ''
-})
-
-// Computed properties
-const filteredTasks = computed(() => {
-  return tasks.value.filter(task => {
-    const matchesStatus = filter.status === 'all' || task.status === filter.status
-    const matchesPriority = filter.priority === 'all' || task.priority === filter.priority
-    const matchesCategory = filter.category === 'all' || task.category === filter.category
-    const matchesSearch = filter.search === '' || 
-      task.title.toLowerCase().includes(filter.search.toLowerCase()) ||
-      task.description.toLowerCase().includes(filter.search.toLowerCase()) ||
-      task.assignee.toLowerCase().includes(filter.search.toLowerCase())
-    
-    return matchesStatus && matchesPriority && matchesCategory && matchesSearch
-  })
-})
-
-const tasksByStatus = computed(() => {
-  const grouped = {
-    todo: [],
-    'in-progress': [],
-    done: []
-  }
-  
-  filteredTasks.value.forEach(task => {
-    grouped[task.status].push(task)
-  })
-  
-  return grouped
-})
-
-// API Methods
-const fetchTasks = async () => {
-  try {
-    loading.value = true
-    error.value = null
-    const response = await fetch('/api/tasks')
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const data = await response.json()
-    tasks.value = data
-  } catch (err) {
-    error.value = err.message
-    console.error('Error fetching tasks:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-const addTask = async (taskData) => {
-  try {
-    loading.value = true
-    error.value = null
-    const response = await fetch('/api/tasks', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(taskData),
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const newTask = await response.json()
-    tasks.value.unshift(newTask)
-    showTaskForm.value = false
-  } catch (err) {
-    error.value = err.message
-    console.error('Error creating task:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-const updateTask = async (taskData) => {
-  try {
-    loading.value = true
-    error.value = null
-    const response = await fetch(`/api/tasks/${taskData.id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(taskData),
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const updatedTask = await response.json()
-    const index = tasks.value.findIndex(task => task.id === updatedTask.id)
-    if (index !== -1) {
-      tasks.value[index] = updatedTask
-    }
-    showTaskForm.value = false
-    editingTask.value = null
-  } catch (err) {
-    error.value = err.message
-    console.error('Error updating task:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-const deleteTask = async (taskId) => {
-  try {
-    loading.value = true
-    error.value = null
-    const response = await fetch(`/api/tasks/${taskId}`, {
-      method: 'DELETE',
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const index = tasks.value.findIndex(task => task.id === taskId)
-    if (index !== -1) {
-      tasks.value.splice(index, 1)
-    }
-  } catch (err) {
-    error.value = err.message
-    console.error('Error deleting task:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-const updateTaskStatus = async (taskId, newStatus) => {
-  try {
-    const response = await fetch(`/api/tasks/${taskId}/status`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ status: newStatus }),
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    const updatedTask = await response.json()
-    const index = tasks.value.findIndex(task => task.id === updatedTask.id)
-    if (index !== -1) {
-      tasks.value[index] = updatedTask
-    }
-  } catch (err) {
-    error.value = err.message
-    console.error('Error updating task status:', err)
-  }
-}
-
-// UI Methods
-const editTask = (task) => {
-  editingTask.value = task
-  showTaskForm.value = true
-}
-
-const cancelEdit = () => {
-  showTaskForm.value = false
-  editingTask.value = null
-}
-
-// Socket.io setup
-const setupSocket = () => {
-  socket.value = io('http://localhost:4001')
-  
-  socket.value.on('connect', () => {
-    console.log('Connected to server')
-  })
-  
-  socket.value.on('disconnect', () => {
-    console.log('Disconnected from server')
-  })
-  
-  socket.value.on('task-created', (newTask) => {
-    tasks.value.unshift(newTask)
-  })
-  
-  socket.value.on('task-updated', (updatedTask) => {
-    const index = tasks.value.findIndex(task => task.id === updatedTask.id)
-    if (index !== -1) {
-      tasks.value[index] = updatedTask
-    }
-  })
-  
-  socket.value.on('task-deleted', (deletedTask) => {
-    const index = tasks.value.findIndex(task => task.id === deletedTask.id)
-    if (index !== -1) {
-      tasks.value.splice(index, 1)
-    }
-  })
-  
-  socket.value.on('task-status-updated', (updatedTask) => {
-    const index = tasks.value.findIndex(task => task.id === updatedTask.id)
-    if (index !== -1) {
-      tasks.value[index] = updatedTask
-    }
-  })
-  
-  socket.value.on('tasks-updated', (allTasks) => {
-    tasks.value = allTasks
-  })
-}
-
-// Lifecycle
-onMounted(async () => {
-  await fetchTasks()
-  setupSocket()
-})
-
-onUnmounted(() => {
-  if (socket.value) {
-    socket.value.disconnect()
-  }
-})
-</script>
-
 <template>
   <div class="task-manager">
     <!-- Header -->
@@ -267,23 +24,6 @@ onUnmounted(() => {
 
     <!-- Filters -->
     <TaskFilter v-model:filter="filter" />
-
-    <!-- Loading State -->
-    <div v-if="loading" class="loading-overlay">
-      <div class="loading-spinner">
-        <div class="spinner"></div>
-        <p>Loading tasks...</p>
-      </div>
-    </div>
-
-    <!-- Error State -->
-    <div v-if="error" class="error-banner">
-      <div class="error-content">
-        <span class="error-icon">⚠️</span>
-        <span class="error-message">{{ error }}</span>
-        <button @click="fetchTasks" class="retry-btn">Retry</button>
-      </div>
-    </div>
 
     <!-- Main Content -->
     <main class="main-content">
@@ -374,6 +114,160 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<script setup>
+import { ref, reactive, onMounted, computed } from 'vue'
+import TaskCard from './components/TaskCard.vue'
+import TaskForm from './components/TaskForm.vue'
+import TaskFilter from './components/TaskFilter.vue'
+import TaskStats from './components/TaskStats.vue'
+
+// Reactive state
+const tasks = ref([])
+const showTaskForm = ref(false)
+const editingTask = ref(null)
+const filter = reactive({
+  status: 'all',
+  priority: 'all',
+  category: 'all',
+  search: ''
+})
+
+// Sample tasks for demo
+const sampleTasks = [
+  {
+    id: '1',
+    title: 'Design new landing page',
+    description: 'Create a modern, responsive landing page for the new product launch',
+    status: 'todo',
+    priority: 'high',
+    category: 'design',
+    assignee: 'John Doe',
+    dueDate: '2024-01-15',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: '2',
+    title: 'Implement user authentication',
+    description: 'Add login and registration functionality with JWT tokens',
+    status: 'in-progress',
+    priority: 'high',
+    category: 'development',
+    assignee: 'Jane Smith',
+    dueDate: '2024-01-20',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: '3',
+    title: 'Write API documentation',
+    description: 'Document all REST API endpoints with examples',
+    status: 'done',
+    priority: 'medium',
+    category: 'documentation',
+    assignee: 'Mike Johnson',
+    dueDate: '2024-01-10',
+    createdAt: new Date().toISOString()
+  }
+]
+
+// Computed properties
+const filteredTasks = computed(() => {
+  return tasks.value.filter(task => {
+    const matchesStatus = filter.status === 'all' || task.status === filter.status
+    const matchesPriority = filter.priority === 'all' || task.priority === filter.priority
+    const matchesCategory = filter.category === 'all' || task.category === filter.category
+    const matchesSearch = filter.search === '' || 
+      task.title.toLowerCase().includes(filter.search.toLowerCase()) ||
+      task.description.toLowerCase().includes(filter.search.toLowerCase()) ||
+      task.assignee.toLowerCase().includes(filter.search.toLowerCase())
+    
+    return matchesStatus && matchesPriority && matchesCategory && matchesSearch
+  })
+})
+
+const tasksByStatus = computed(() => {
+  const grouped = {
+    todo: [],
+    'in-progress': [],
+    done: []
+  }
+  
+  filteredTasks.value.forEach(task => {
+    grouped[task.status].push(task)
+  })
+  
+  return grouped
+})
+
+// Local storage methods
+const saveTasksToStorage = () => {
+  localStorage.setItem('taskManager_tasks', JSON.stringify(tasks.value))
+}
+
+const loadTasksFromStorage = () => {
+  const stored = localStorage.getItem('taskManager_tasks')
+  if (stored) {
+    tasks.value = JSON.parse(stored)
+  } else {
+    tasks.value = [...sampleTasks]
+    saveTasksToStorage()
+  }
+}
+
+// Task management methods
+const addTask = (taskData) => {
+  const newTask = {
+    ...taskData,
+    id: Date.now().toString(),
+    createdAt: new Date().toISOString()
+  }
+  tasks.value.unshift(newTask)
+  saveTasksToStorage()
+  showTaskForm.value = false
+}
+
+const updateTask = (taskData) => {
+  const index = tasks.value.findIndex(task => task.id === taskData.id)
+  if (index !== -1) {
+    tasks.value[index] = { ...tasks.value[index], ...taskData }
+    saveTasksToStorage()
+  }
+  showTaskForm.value = false
+  editingTask.value = null
+}
+
+const deleteTask = (taskId) => {
+  const index = tasks.value.findIndex(task => task.id === taskId)
+  if (index !== -1) {
+    tasks.value.splice(index, 1)
+    saveTasksToStorage()
+  }
+}
+
+const updateTaskStatus = (taskId, newStatus) => {
+  const index = tasks.value.findIndex(task => task.id === taskId)
+  if (index !== -1) {
+    tasks.value[index].status = newStatus
+    saveTasksToStorage()
+  }
+}
+
+// UI Methods
+const editTask = (task) => {
+  editingTask.value = task
+  showTaskForm.value = true
+}
+
+const cancelEdit = () => {
+  showTaskForm.value = false
+  editingTask.value = null
+}
+
+// Lifecycle
+onMounted(() => {
+  loadTasksFromStorage()
+})
+</script>
 
 <style scoped>
 .task-manager {
@@ -533,89 +427,6 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-/* Loading and Error States */
-.loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  backdrop-filter: blur(5px);
-}
-
-.loading-spinner {
-  background: white;
-  padding: 2rem;
-  border-radius: 1rem;
-  text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top: 4px solid #3b82f6;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 1rem;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.error-banner {
-  background: #fee2e2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-  padding: 1rem;
-  margin: 1rem 2rem;
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.error-content {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  max-width: 1400px;
-  width: 100%;
-}
-
-.error-icon {
-  font-size: 1.25rem;
-}
-
-.error-message {
-  flex: 1;
-  font-weight: 500;
-}
-
-.retry-btn {
-  background: #dc2626;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.retry-btn:hover {
-  background: #b91c1c;
-  transform: translateY(-1px);
-}
-
 @media (max-width: 768px) {
   .header-content {
     flex-direction: column;
@@ -629,16 +440,6 @@ onUnmounted(() => {
   
   .main-content {
     padding: 1rem;
-  }
-  
-  .error-banner {
-    margin: 1rem;
-  }
-  
-  .error-content {
-    flex-direction: column;
-    text-align: center;
-    gap: 0.5rem;
   }
 }
 </style>
