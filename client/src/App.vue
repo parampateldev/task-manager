@@ -15,6 +15,9 @@
             <span class="icon">➕</span>
             Add Task
           </button>
+          <button @click="showTaskForm = true" class="btn btn-secondary" style="margin-left: 0.5rem;">
+            Test Modal
+          </button>
         </div>
       </div>
     </header>
@@ -425,6 +428,8 @@ onMounted(() => {
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(5px);
+  opacity: 1;
+  visibility: visible;
 }
 
 .modal-content {
