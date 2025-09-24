@@ -11,7 +11,7 @@
           <p class="app-subtitle">Stay organized and productive</p>
         </div>
         <div class="header-right">
-          <button @click="showTaskForm = true" class="btn btn-primary">
+          <button @click="openTaskForm" class="btn btn-primary">
             <span class="icon">➕</span>
             Add Task
           </button>
@@ -216,14 +216,17 @@ const loadTasksFromStorage = () => {
 
 // Task management methods
 const addTask = (taskData) => {
+  console.log('Adding task:', taskData)
   const newTask = {
     ...taskData,
     id: Date.now().toString(),
     createdAt: new Date().toISOString()
   }
+  console.log('New task created:', newTask)
   tasks.value.unshift(newTask)
   saveTasksToStorage()
   showTaskForm.value = false
+  console.log('Task added successfully, modal closed')
 }
 
 const updateTask = (taskData) => {
@@ -261,6 +264,13 @@ const editTask = (task) => {
 const cancelEdit = () => {
   showTaskForm.value = false
   editingTask.value = null
+}
+
+// Debug method to check if modal should show
+const openTaskForm = () => {
+  console.log('Opening task form...')
+  showTaskForm.value = true
+  console.log('showTaskForm:', showTaskForm.value)
 }
 
 // Lifecycle
